@@ -1,6 +1,0 @@
----< Parameter Settings >-------------------------------
-log_file: ./log.txt
-train_file: ./dataset/ijcnn/ijcnn1
-model_file: ./model.txt
---------------------------------------------------------
-
