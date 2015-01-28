@@ -9,6 +9,7 @@
 #include "lpsvm_log.h"
 #include "lpsvm_options.h"
 #include "lpsvm_parser.h"
+#include "lpsvm_simplexsolver.h"
 #include "../3rdparty/simplex_tamas/SimplexSolver.h"
 #include "../3rdparty/simplex_tamas/exception.h"
 
@@ -23,16 +24,15 @@ int main(int argc, char **argv)
     options.PrintArguments();
 
     LPSVM_SimplexSolver simplexSolver;
-    Eigen::MatrixXd A;
-    A << 1,2,3,4,
-         5,6,7,8,
-		 9,10,11,12;
-    Eigen::VectorXd b;
-    b << 21,22,23;
-    Eigen::VectorXd c;
-    c << 100, 100, 100, 100;
+    Eigen::MatrixXd A(2,5);
+    A << 1,1,2,3,5,
+         2,4,3,2,1;
+    Eigen::VectorXd b(2);
+    b << 19,57;
+    Eigen::VectorXd c(5);
+    c << 10, 24, 20, 20, 25;
 
-    simplexSolver.Solve(A,b,c);
+    simplexSolver.Solve(A,b, simplexSolver.CONSTRAINT_LE, c);
 
 #if 0
     LPSVM_Parser parser;

@@ -15,11 +15,20 @@ public:
 	LPSVM_SimplexSolver(){}
 	virtual ~LPSVM_SimplexSolver(){};
 
+	typedef enum TYPE_CONSTRAINT
+	{
+		CONSTRAINT_GE=0,
+		CONSTRAINT_EQ,
+		CONSTRAINT_LE
+	} TYPE_CONSTRAINT;
+
 	/**
 	 * Solve: solve Ax = b
 	 */
-	Eigen::VectorXd Solve(	Eigen::MatrixXd& mxContraints_LHS, Eigen::VectorXd& mxContraints_RHS, Eigen::VectorXd& vcObjective );
+	Eigen::VectorXd Solve(	Eigen::MatrixXd& mxContraints_LHS, Eigen::VectorXd& mxContraints_RHS, TYPE_CONSTRAINT type_constraint, Eigen::VectorXd& vcObjective );
 
 } LPSVM_SimplexSolver;
+
+#define LPSVM_SIMPLEX_EXCEPTION_INPUT_A_SIZE 1
 
 #endif /* LPSVM_SIMPLEXSOLVER_H_ */
