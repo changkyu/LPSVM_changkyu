@@ -6,6 +6,7 @@
  */
 
 #include <exception>
+#include <map>
 
 #include "lpsvm_simplexsolver.h"
 #include "lpsvm_log.h"
@@ -21,98 +22,224 @@ using namespace Eigen;
  *
  *  c(n x 1) vector
  */
-VectorXd LPSVM_SimplexSolver::Solve(MatrixXd& A_in, VectorXd& b,  TYPE_CONSTRAINT type_constraint, VectorXd& c_in )
+LPSVM_SimplexSolver::Solution* LPSVM_SimplexSolver::Solve(MatrixXd& A_in, VectorXd& b, VectorXd& c_in, LPSVM_SimplexSolver::Problem_Description problem_desc )
 {
-	VectorXd sol;
 	int m = A_in.rows();
 	int n = A_in.cols();
 
+	// TESt
+
+	FullPivLU<MatrixXd> A_lu(A_in);
+
+	LOG("A_LU: " << std::endl << A_lu.matrixLU() << std::endl );
+
 	int rows_A=0, cols_A=0;
-	switch( type_constraint )
+	switch( problem_desc.constraint )
 	{
-		case CONSTRAINT_GE:
-			break;
 		case CONSTRAINT_EQ:
-				rows_A = m;
-				cols_A = n;
-			break;
+		{
+			rows_A = m;
+			cols_A = n;
+		}
+		break;
+
 		case CONSTRAINT_LE:
-				rows_A = m;
-				cols_A = n+m;
-			break;
+		case CONSTRAINT_GE:
+		{
+			rows_A = m;
+			cols_A = n+m;
+		}
+		break;
 	}
 
 	MatrixXd A(rows_A, cols_A);
 	VectorXd c(cols_A);
-	switch( type_constraint )
+	switch( problem_desc.constraint )
 	{
-		case CONSTRAINT_GE:
-			break;
 		case CONSTRAINT_EQ:
+		{
 			A = A_in;
 			c = c_in;
-			break;
+		}
+		break;
+
 		case CONSTRAINT_LE:
+		case CONSTRAINT_GE:
+		{
 			A.block(0,0,m,n) = A_in;
-			A.block(0,n,rows_A,rows_A) = MatrixXd::Identity(rows_A,rows_A);
+			if( problem_desc.constraint == CONSTRAINT_GE )
+			{
+				LOG("Ax >= b -> [A -I]x = b" << std::endl);
+				A.block(0,n,rows_A,rows_A) = -MatrixXd::Identity(rows_A,rows_A);
+			}
+			else
+			{
+				LOG("Ax <= b -> [A I]x = b" << std::endl);
+				A.block(0,n,rows_A,rows_A) = MatrixXd::Identity(rows_A,rows_A);
+			}
 			c.head(n) = c_in;
 			c.tail(cols_A-n) = VectorXd::Zero(cols_A-n);
-			break;
+		}
+		break;
 	}
 
+	if( problem_desc.problem == MAX_PROBLEM )
+	{
+		LOG("Converted to MIN problem" << std::endl);
+		c = -c;
+	}
+
+	for( int row=0; row<rows_A; row++ )
+	{
+		if( b(row) < 0 )
+		{
+			A.block(row,0,1,cols_A) = -A.block(row,0,1,cols_A);
+		}
+	}
 
 	LOG("A: " << std::endl << A << std::endl);
 	LOG("b: " << std::endl << b << std::endl);
-	LOG("c': " << std::endl << c.transpose());
+	LOG("c': " << c.transpose());
 	LOG(std::endl);
 
+	VectorXi idxes_B(rows_A);
+	std::map<int, int> map_idxes_B;
+
 	int len_J = cols_A-rows_A;
-	VectorXi J(len_J); // J: index of non basic variables
+	VectorXi idxes_J(len_J); // J: index of non basic variables
+	std::map<int, int> map_idxes_J;
 
 	MatrixXd B(rows_A,rows_A);
 	RowVectorXd cBT(rows_A);
 	// Step 0. Initialize B, c_B and J
 	// 1-1 J: index of non basic variables
-	int idx_J=0;
+	int i=0;
+	int j=0;
 	for( int col=0; col<cols_A; col++ )
 	{
 		if( col >= len_J ) // Initially, set B as the last block of A
 		{
-			B.block(0,0,rows_A,rows_A) = A.block(0,col,rows_A,rows_A);
-			cBT = c.tail(rows_A);
-			break;
+			B.block(0,i,rows_A,1) = A.block(0,col,rows_A,1);
+			cBT(i) = c(col);
+
+			idxes_B(i) = col;
+			map_idxes_B.insert( std::pair<int, int>(col, i) );
+			i++;
 		}
 		else
 		{
-			J(idx_J) = col;
-			idx_J++;
+			idxes_J(j) = col;
+			map_idxes_J.insert( std::pair<int, int>(col, j) );
+			j++;
 		}
 	}
-	LOG("B: " << std::endl << B << std::endl);
-	LOG("cBT: " << std::endl << cBT << std::endl);
-	LOG("J': " << J.transpose());
-	LOG(std::endl);
 
+	VectorXd x_B(rows_A);
 	while(true)
 	{
 		// Step 1
+		LOG("Step 1 .........." << std::endl);
+		LOG("idxes_B': " << idxes_B.transpose() << std::endl);
+		LOG("idxes_J': " << idxes_J.transpose() << std::endl);
+		LOG("B: " << std::endl << B << std::endl);
+		LOG("cBT: " << cBT << std::endl);
+
 		// 1.1 wT = c_B^T B^-1 (wT B = c_B^T)
 		MatrixXd BBT( B*B.transpose() ); // wT BB^T = c_B^T B^T
-		LOG("BBT: " << std::endl << BBT << std::endl);
 		MatrixXd L( BBT.llt().matrixL() ); // wT LL^T = c_B^T B^T
-		LOG("L: " << std::endl << L << std::endl);
 		MatrixXd L_inv = L.inverse();
-		LOG("L_inv: " << std::endl << L_inv << std::endl);
-		MatrixXd wT( cBT * B.transpose() * L_inv.transpose() * L_inv ); // wT = c_B^T B^T L^-T L^-1
-		LOG("wT:" << std::endl << wT << std::endl);
+		MatrixXd B_inv( B.transpose() * L_inv.transpose() * L_inv );
+		MatrixXd wT( cBT * B_inv ); // wT = c_B^T B^T L^-T L^-1
+		LOG("check BB_inv" << std::endl << B*B_inv << std::endl );
+		LOG("wT:" << wT << std::endl);
+
+		x_B = B_inv * b;
 
 		VectorXd z_c(len_J);
-		for( int j=0; j<len_J; j++ )
+		for( j=0; j<len_J; j++ )
 		{
-			z_c.segment(j,1) = wT * A.block(0,J(j),rows_A,1) - c(J(j));
+			double c_j = c(idxes_J(j));
+			MatrixXd z_j( wT * A.block(0,idxes_J(j),rows_A,1) );
+			z_c(j) = z_j(0,0) - c_j;
+		}
+		LOG("z - c: " << z_c.transpose() << std::endl);
+
+		VectorXd::Index k = -1;
+		z_c.maxCoeff(&k);
+		LOG("k: " << k << std::endl);
+		if( z_c(k) < 0 )
+		{
+			LOG("Stop: z_c < 0" << std::endl;)
+			break;
 		}
 
+		// Step 2
+		LOG("Step 2 .........." << std::endl);
+		int idx_k = idxes_J(k);
+		LOG("idx_k: " << idx_k << std::endl);
+		LOG("b_bar:" << std::endl << x_B << std::endl);
+
+		VectorXd y_k = B_inv * A.block(0,idx_k,rows_A,1);
+		LOG("y_k:" << y_k.transpose() << std::endl);
+
+		bool b_stop = true;
+		for( int r=0; r<rows_A; r++ )
+		{
+			if( y_k(r) > 0 )
+			{
+				b_stop = false;
+				break;
+			}
+		}
+		if( b_stop )
+		{
+			LOG("Stop: y_k <= 0" << std::endl;)
+			break;
+		}
+
+		VectorXd x_k = x_B.cwiseQuotient( y_k );
+		LOG("x_k: " << x_k.transpose() << std::endl);
+		VectorXd::Index r = -1;
+		x_k.minCoeff(&r);
+		LOG("r: " << r << std::endl);
+
+		// Step 3
+		LOG("Step 3 .........." << std::endl);
+		int idx_r = idxes_B(r);
+		j = map_idxes_J[idx_k];
+		idxes_J(j) = idx_r;
+		map_idxes_J.erase(idx_k);
+		map_idxes_J.insert( std::pair<int,int>(idx_r,j) );
+
+		i = map_idxes_B[idx_r];
+		idxes_B(i) = idx_k;
+		map_idxes_B.erase(idx_r);
+		map_idxes_B.insert( std::pair<int,int>(idx_k,i) );
+
+		B.block(0,i,rows_A,1) = A.block(0,idxes_B(i),rows_A,1);
+		cBT(i) = c(idxes_B(i));
+
+		LOG("Leaving: " << idxes_J(j) << ", Entering: " << idxes_B(i) << std::endl);
+
+		LOG("--------------------------------" << std::endl);
 	}
 
+	Solution* sol = new Solution;
+	sol->x = VectorXd::Zero(n);
+	for( i=0; i<rows_A; i++ )
+	{
+		if( idxes_B(i) < n )
+		{
+			sol->x(idxes_B(i)) = x_B(i);
+		}
+	}
+
+	sol->objective_value = c_in.dot(sol->x);
+
 	return sol;
+}
+
+LPSVM_SimplexSolver::Solution* LPSVM_SimplexSolver::Solve_Primal(Eigen::MatrixXd &A_in, Eigen::VectorXd &b, Eigen::VectorXd &c_in)
+{
+
 }

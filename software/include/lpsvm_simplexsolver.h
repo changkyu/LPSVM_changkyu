@@ -15,6 +15,12 @@ public:
 	LPSVM_SimplexSolver(){}
 	virtual ~LPSVM_SimplexSolver(){};
 
+	typedef enum TYPE_PROBLEM
+	{
+		MIN_PROBLEM=0,
+		MAX_PROBLEM
+	} TYPE_PROBLEM;
+
 	typedef enum TYPE_CONSTRAINT
 	{
 		CONSTRAINT_GE=0,
@@ -22,10 +28,25 @@ public:
 		CONSTRAINT_LE
 	} TYPE_CONSTRAINT;
 
+	typedef struct Problem_Description
+	{
+		TYPE_PROBLEM problem;
+		TYPE_CONSTRAINT constraint;
+	}Problem_Description;
+
+	typedef struct Solution
+	{
+		double objective_value;
+		Eigen::VectorXd x;
+	} Solution;
+
 	/**
 	 * Solve: solve Ax = b
 	 */
-	Eigen::VectorXd Solve(	Eigen::MatrixXd& mxContraints_LHS, Eigen::VectorXd& mxContraints_RHS, TYPE_CONSTRAINT type_constraint, Eigen::VectorXd& vcObjective );
+	Solution* Solve(	Eigen::MatrixXd& mxContraints_LHS, Eigen::VectorXd& mxContraints_RHS, Eigen::VectorXd& vcObjective, Problem_Description problem_description );
+
+private:
+	Solution* Solve_Primal(Eigen::MatrixXd &A, Eigen::VectorXd &b, Eigen::VectorXd &c);
 
 } LPSVM_SimplexSolver;
 

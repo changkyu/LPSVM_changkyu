@@ -24,6 +24,7 @@ int main(int argc, char **argv)
     options.PrintArguments();
 
     LPSVM_SimplexSolver simplexSolver;
+#if 0
     Eigen::MatrixXd A(2,5);
     A << 1,1,2,3,5,
          2,4,3,2,1;
@@ -31,8 +32,24 @@ int main(int argc, char **argv)
     b << 19,57;
     Eigen::VectorXd c(5);
     c << 10, 24, 20, 20, 25;
+#endif
 
-    simplexSolver.Solve(A,b, simplexSolver.CONSTRAINT_LE, c);
+    Eigen::MatrixXd A(3,2);
+	A << 2,1,
+		 2,3,
+		 3,1;
+	Eigen::VectorXd b(3);
+	b << 18,42,24;
+	Eigen::VectorXd c(2);
+	c << 3,2;
+
+    LPSVM_SimplexSolver::Problem_Description desc;
+    desc.problem = LPSVM_SimplexSolver::MAX_PROBLEM;
+    desc.constraint = LPSVM_SimplexSolver::CONSTRAINT_LE;
+
+    LPSVM_SimplexSolver::Solution* sol = simplexSolver.Solve(A,b,c, desc);
+    LOG("Sol: " << sol->x.transpose() << std::endl);
+    LOG("Obj: " << sol->objective_value << std::endl);
 
 #if 0
     LPSVM_Parser parser;
