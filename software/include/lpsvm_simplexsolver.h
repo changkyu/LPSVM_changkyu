@@ -46,7 +46,24 @@ public:
 	Solution* Solve(	Eigen::MatrixXd& mxContraints_LHS, Eigen::VectorXd& mxContraints_RHS, Eigen::VectorXd& vcObjective, Problem_Description problem_description );
 
 private:
+
+	typedef enum ERROR
+	{
+		SUCCESS = 0 ,
+		ERROR_CONVERT2PRIMAL2DUAL_UNSUPPORTTED_PROBLEM_TYPE,
+		ERROR_CONVERT2STANDARDFORM_INVALID_PROBLEM_TYPE
+	} ERROR;
+
+	ERROR ConvertPrimal2Dual(	Eigen::MatrixXd& A_in, Eigen::VectorXd& b_in, Eigen::VectorXd& c_in,
+								Problem_Description& problem_desc,
+								Eigen::MatrixXd* &p_A_out, Eigen::VectorXd* &p_b_out, Eigen::VectorXd* &p_c_out  );
+
+	ERROR Convert2StandardForm(	Eigen::MatrixXd& A_in, Eigen::VectorXd& b_in, Eigen::VectorXd& c_in,
+								Problem_Description& problem_desc,
+								Eigen::MatrixXd* &p_A_out, Eigen::VectorXd* &p_b_out, Eigen::VectorXd* &p_c_out  );
+
 	Solution* Solve_Primal(Eigen::MatrixXd &A, Eigen::VectorXd &b, Eigen::VectorXd &c);
+
 
 } LPSVM_SimplexSolver;
 

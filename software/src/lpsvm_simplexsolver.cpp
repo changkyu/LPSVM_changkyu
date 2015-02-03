@@ -13,6 +13,131 @@
 
 using namespace Eigen;
 
+LPSVM_SimplexSolver::ERROR LPSVM_SimplexSolver::ConvertPrimal2Dual
+(	MatrixXd& A_in, VectorXd& b_in, VectorXd& c_in,
+	Problem_Description& problem_desc ,
+	MatrixXd* &p_A_out, VectorXd* &p_b_out, VectorXd* &p_c_out
+)
+{
+	p_A_out = new MatrixXd(A_in.cols(),A_in.rows());
+	p_b_out = new VectorXd(c_in.rows());
+	p_c_out = new VectorXd(b_in.rows());
+
+	(*p_A_out) = A_in.transpose();
+	(*p_c_out) = b_in;
+
+	if( problem_desc.constraint == CONSTRAINT_LE )
+	{
+		problem_desc.constraint = CONSTRAINT_GE;
+		if( problem_desc.problem == MAX_PROBLEM )
+		{
+			problem_desc.problem = MIN_PROBLEM;
+			(*p_b_out) = c_in;
+		}
+		else if( problem_desc.problem == MIN_PROBLEM )
+		{
+			(*p_b_out) = -c_in;
+		}
+		else
+		{
+			return ERROR_CONVERT2PRIMAL2DUAL_UNSUPPORTTED_PROBLEM_TYPE;
+		}
+	}
+	else if( problem_desc.constraint == CONSTRAINT_GE )
+	{
+		problem_desc.constraint = CONSTRAINT_LE;
+		if( problem_desc.problem == MIN_PROBLEM )
+		{
+			problem_desc.problem = MAX_PROBLEM;
+			(*p_b_out) = c_in;
+		}
+		else if( problem_desc.problem == MAX_PROBLEM )
+		{
+			(*p_b_out) = -c_in;
+		}
+		else
+		{
+			//Error
+			return ERROR_CONVERT2PRIMAL2DUAL_UNSUPPORTTED_PROBLEM_TYPE;
+		}
+	}
+	else
+	{
+		// Error
+		return ERROR_CONVERT2PRIMAL2DUAL_UNSUPPORTTED_PROBLEM_TYPE;
+	}
+	return SUCCESS;
+}
+
+LPSVM_SimplexSolver::ERROR LPSVM_SimplexSolver::Convert2StandardForm
+(	MatrixXd& A_in, VectorXd& b_in, VectorXd& c_in,
+	Problem_Description& problem_desc ,
+	MatrixXd* &p_A_out, VectorXd* &p_b_out, VectorXd* &p_c_out
+)
+{
+	int m = A_in.rows();
+	int n = A_in.cols();
+
+	int rows_A=0, cols_A=0;
+	switch( problem_desc.constraint )
+	{
+		case CONSTRAINT_LE:
+		case CONSTRAINT_GE:
+		{
+			// Add Slack Variables
+			rows_A = m;
+			cols_A = m + n;
+
+			p_A_out = new MatrixXd(rows_A, cols_A);
+			p_b_out = new VectorXd(b_in);
+			p_c_out = new VectorXd(cols_A);
+
+			p_A_out->block(0,0,m,n) = A_in;
+			if( problem_desc.constraint == CONSTRAINT_GE )
+			{
+				LOG("Ax >= b -> [A -I]x = b" << std::endl);
+				p_A_out->block(0,n,rows_A,rows_A) = -MatrixXd::Identity(rows_A,rows_A);
+			}
+			else
+			{
+				LOG("Ax <= b -> [A I]x = b" << std::endl);
+				p_A_out->block(0,n,rows_A,rows_A) = MatrixXd::Identity(rows_A,rows_A);
+			}
+			p_c_out->head(n) = c_in;
+			p_c_out->tail(cols_A-n) = VectorXd::Zero(cols_A-n);
+		}
+		break;
+
+		case CONSTRAINT_EQ:
+		{
+			// Nothing to do
+			p_A_out = new MatrixXd(A_in);
+			p_b_out = new VectorXd(b_in);
+			p_c_out = new VectorXd(c_in);
+		}
+		break;
+
+		default:
+			return ERROR_CONVERT2STANDARDFORM_INVALID_PROBLEM_TYPE;
+	}
+
+	if( problem_desc.problem == MAX_PROBLEM )
+	{
+		// Converted to MIN problem
+		(*p_c_out) = -(*p_c_out);
+		problem_desc.problem = MIN_PROBLEM;
+	}
+
+	// Make sure all the elements of b have non-negative value
+	for( int row=0; row<rows_A; row++ )
+	{
+		if( b_in(row) < 0 )
+		{
+			p_A_out->block(row,0,1,cols_A) = -p_A_out->block(row,0,1,cols_A);
+		}
+	}
+}
+
 /**
  *
  * assume that
@@ -22,85 +147,70 @@ using namespace Eigen;
  *
  *  c(n x 1) vector
  */
-LPSVM_SimplexSolver::Solution* LPSVM_SimplexSolver::Solve(MatrixXd& A_in, VectorXd& b, VectorXd& c_in, LPSVM_SimplexSolver::Problem_Description problem_desc )
+LPSVM_SimplexSolver::Solution* LPSVM_SimplexSolver::Solve(MatrixXd& A_in, VectorXd& b_in, VectorXd& c_in, LPSVM_SimplexSolver::Problem_Description problem_desc )
 {
 	int m = A_in.rows();
 	int n = A_in.cols();
 
-	// TESt
-
-	FullPivLU<MatrixXd> A_lu(A_in);
-
-	LOG("A_LU: " << std::endl << A_lu.matrixLU() << std::endl );
-
-	int rows_A=0, cols_A=0;
-	switch( problem_desc.constraint )
+	MatrixXd* p_A_std = NULL;
+	VectorXd* p_b_std = NULL;
+	VectorXd* p_c_std = NULL;
+	if( n < m )
 	{
-		case CONSTRAINT_EQ:
-		{
-			rows_A = m;
-			cols_A = n;
-		}
-		break;
+		// If rank(A) < m, take dual
+		MatrixXd* p_A_dual = NULL;
+		VectorXd* p_b_dual = NULL;
+		VectorXd* p_c_dual = NULL;
 
-		case CONSTRAINT_LE:
-		case CONSTRAINT_GE:
+		if( SUCCESS == ConvertPrimal2Dual(A_in, b_in, c_in, problem_desc, p_A_dual, p_b_dual, p_c_dual) )
 		{
-			rows_A = m;
-			cols_A = n+m;
-		}
-		break;
-	}
+			LOG("Dual: " << std::endl);
+			LOG("A: " << std::endl << *p_A_dual << std::endl);
+			LOG("b': " << std::endl << p_b_dual->transpose() << std::endl);
+			LOG("c': " << p_c_dual->transpose() << std::endl);
 
-	MatrixXd A(rows_A, cols_A);
-	VectorXd c(cols_A);
-	switch( problem_desc.constraint )
-	{
-		case CONSTRAINT_EQ:
-		{
-			A = A_in;
-			c = c_in;
-		}
-		break;
-
-		case CONSTRAINT_LE:
-		case CONSTRAINT_GE:
-		{
-			A.block(0,0,m,n) = A_in;
-			if( problem_desc.constraint == CONSTRAINT_GE )
+			if( SUCCESS != Convert2StandardForm(*p_A_dual, *p_b_dual, *p_c_dual, problem_desc, p_A_std, p_b_std, p_c_std) )
 			{
-				LOG("Ax >= b -> [A -I]x = b" << std::endl);
-				A.block(0,n,rows_A,rows_A) = -MatrixXd::Identity(rows_A,rows_A);
+				// Error
 			}
-			else
-			{
-				LOG("Ax <= b -> [A I]x = b" << std::endl);
-				A.block(0,n,rows_A,rows_A) = MatrixXd::Identity(rows_A,rows_A);
-			}
-			c.head(n) = c_in;
-			c.tail(cols_A-n) = VectorXd::Zero(cols_A-n);
+
+			LOG("Standard: " << std::endl);
+			LOG("A: " << std::endl << *p_A_std << std::endl);
+			LOG("b': " << std::endl << p_b_std->transpose() << std::endl);
+			LOG("c': " << p_c_std->transpose() << std::endl);
+
+			delete p_A_dual;
+			delete p_b_dual;
+			delete p_c_dual;
 		}
-		break;
-	}
-
-	if( problem_desc.problem == MAX_PROBLEM )
-	{
-		LOG("Converted to MIN problem" << std::endl);
-		c = -c;
-	}
-
-	for( int row=0; row<rows_A; row++ )
-	{
-		if( b(row) < 0 )
+		else
 		{
-			A.block(row,0,1,cols_A) = -A.block(row,0,1,cols_A);
+			// Error
 		}
 	}
+	else
+	{
+		if( SUCCESS != Convert2StandardForm(A_in,  b_in, c_in, problem_desc, p_A_std, p_b_std, p_c_std) )
+		{
+			// Error
+		}
+		LOG("Standard: " << std::endl);
+		LOG("A: " << std::endl << *p_A_std << std::endl);
+		LOG("b': " << std::endl << p_b_std->transpose() << std::endl);
+		LOG("c': " << p_c_std->transpose() << std::endl);
+
+	}
+
+	MatrixXd& A = *p_A_std;
+	VectorXd& b = *p_b_std;
+	VectorXd& c = *p_c_std;
+
+	int rows_A = A.rows();
+	int cols_A = A.cols();
 
 	LOG("A: " << std::endl << A << std::endl);
-	LOG("b: " << std::endl << b << std::endl);
-	LOG("c': " << c.transpose());
-	LOG(std::endl);
+	LOG("b': " << std::endl << b.transpose() << std::endl);
+	LOG("c': " << c.transpose() << std::endl);
 
 	VectorXi idxes_B(rows_A);
 	std::map<int, int> map_idxes_B;
@@ -235,6 +345,10 @@ LPSVM_SimplexSolver::Solution* LPSVM_SimplexSolver::Solve(MatrixXd& A_in, Vector
 	}
 
 	sol->objective_value = c_in.dot(sol->x);
+
+	if( p_A_std != NULL ) delete p_A_std;
+	if( p_b_std != NULL ) delete p_b_std;
+	if( p_c_std != NULL ) delete p_c_std;
 
 	return sol;
 }

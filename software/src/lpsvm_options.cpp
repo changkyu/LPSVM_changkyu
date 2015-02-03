@@ -11,7 +11,7 @@
 
 namespace po = boost::program_options;
 
-LPSVM_Options::LPSVM_Options(int argc, const char **argv)
+LPSVM_Options::LPSVM_Options(int argc, char **argv)
 {
     po::options_description desc("\nAvailable Options for 'Support Vector Machine with Linear Programming'\n");
     desc.add_options()

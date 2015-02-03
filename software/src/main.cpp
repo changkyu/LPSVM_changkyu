@@ -19,7 +19,7 @@
  */
 int main(int argc, char **argv)
 {
-    LPSVM_Options options(argc, (const char **) argv);
+    LPSVM_Options options(argc, argv);
     g_log.open(options.GetParam().filepath_log);
     options.PrintArguments();
 

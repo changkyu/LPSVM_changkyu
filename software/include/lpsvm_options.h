@@ -19,7 +19,7 @@ typedef struct LPSVM_Param
 typedef class LPSVM_Options
 {
 public:
-    LPSVM_Options(int argc, const char **argv);
+    LPSVM_Options(int argc, char **argv);
     virtual ~LPSVM_Options(){};
 
     void PrintArguments();
